@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import requests
 import  lxml
 from lxml.html.builder import SPAN
-searchrequest = "laptop"
+searchrequest = "Ryzen"
 pagenum = 1
 sleepTime = 0
 
