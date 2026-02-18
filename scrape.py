@@ -1,14 +1,14 @@
 import time
+import re
 import random
-from mimetypes import init
-from os import fpathconf
-
 from bs4 import BeautifulSoup
 import requests
 import  lxml
-from lxml.html.builder import SPAN
-searchrequest = "Ryzen"
-pagenum = 1
+
+
+
+searchrequest = "RTX 5050"
+pagenum = 0
 sleepTime = 0
 
 headers = {
@@ -19,29 +19,13 @@ headers = {
 session = requests.Session()
 session.headers.update(headers)
 
-url = f'https://www.amazon.ie/s?k={searchrequest}&page={pagenum}'
+url = f'https://www.amazon.ie/s?k={searchrequest}'
 result = session.get(url)
 page = BeautifulSoup(result.content, "lxml")
 allProducts = page.find_all("div", role="listitem")
-print("Page:"+ str(pagenum))
-for product in allProducts:
-    innerText = product.find("h2", class_="a-size-base-plus a-spacing-none a-color-base a-text-normal")
-    if innerText == None:
-        continue
-    title = innerText.find("span")
 
-    try:
-        price = product.find("span", class_="a-price-whole").text + product.find("span",class_="a-price-fraction").text
-    except:
-        price = "None"
-    image = product.find("img", class_="s-image").attrs["src"]
 
-    print("Title: " + title.text)
-    print("Price: " + price)
-    print("Image: " + image)
-    print("---------------------------------------------")
-
-time.sleep(sleepTime)
+#get products
 while allProducts != []:
     pagenum += 1
     url = f'https://www.amazon.ie/s?k={searchrequest}&page={pagenum}'
@@ -67,10 +51,16 @@ while allProducts != []:
             image = product.find("img", class_="s-image").attrs["src"]
         except:
             image = "None"
+        link = product.find("a")["href"]
+        match = re.search(r'/dp/([A-Z0-9]{10})', link)
 
         print("Title: " + title.text)
         print("Price: " + price)
         print("Image: " + image)
+        if match:
+            asin = match.group(1)
+            print("Link: " + "https://www.amazon.ie/dp/" + asin)
+            print("ASIN: " + asin)
         print("---------------------------------------------")
 
     time.sleep(sleepTime)
