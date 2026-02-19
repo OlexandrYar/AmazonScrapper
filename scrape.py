@@ -23,8 +23,8 @@ def priceAnotherCountry(session,domainEnding,asin):
 def search(searchrequest):
     pagenum = 1
     sleepTime = 0
-    pageLimit = 3
-    workersNum = 25
+    pageLimit = 1
+    workersNum = 20
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
