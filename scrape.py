@@ -20,10 +20,10 @@ def priceAnotherCountry(session,domainEnding,asin):
 
 
 def search(searchrequest):
-
     pagenum = 1
     sleepTime = 0
-    pageLimit = 7
+    pageLimit = 3
+    workersNum = 100
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -44,7 +44,9 @@ def search(searchrequest):
         "price_uk": "",
         "price_de": "",
         "image": "",
-        "link": "",
+        "link_ie": "",
+        "link_de": "",
+        "link_uk": "",
         "asin": "",
 
     }
@@ -56,12 +58,12 @@ def search(searchrequest):
     while allProducts != [] and pagenum <= pageLimit:
         #print(pagenum)
         if allProducts != [] and pagenum <= pageLimit:
-            pagenum += 1
+
             url = f'https://www.amazon.ie/s?k={searchrequest}&page={pagenum}'
             result = session.get(url)
             page = BeautifulSoup(result.content, "lxml")
             allProducts = page.find_all("div", role="listitem")
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=workersNum) as executor:
                 futures = []
                 for product in allProducts:
                     try:
@@ -95,7 +97,9 @@ def search(searchrequest):
 
                     if match:
                         asin = match.group(1)
-                        newProductObject["link"] = "https://www.amazon.ie/dp/" + asin
+                        newProductObject["link_ie"] = "https://www.amazon.ie/dp/" + asin
+                        newProductObject["link_de"] = "https://www.amazon.de/dp/" + asin
+                        newProductObject["link_uk"] = "https://www.amazon.co.uk/dp/" + asin
                         newProductObject["asin"] = asin
 
                         futureDE = executor.submit(priceAnotherCountry ,session,"de",asin)
@@ -111,6 +115,6 @@ def search(searchrequest):
 
 
         time.sleep(sleepTime)
-
+        pagenum += 1
     resultJSON = json.dumps(resultsList, indent=1)
     return resultJSON
