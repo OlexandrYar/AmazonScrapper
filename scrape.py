@@ -1,15 +1,29 @@
 import json
 import time
 import re
-import random
 from bs4 import BeautifulSoup
 import requests
 import  lxml
+from concurrent.futures import ThreadPoolExecutor
 
-def searchIE(searchrequest):
+def priceAnotherCountry(session,domainEnding,asin):
+    countryUrl = f'https://www.amazon.{domainEnding}/dp/{asin}'
+    countryResult = session.get(countryUrl)
+    countryPage = BeautifulSoup(countryResult.content, "lxml")
 
-    pagenum = 0
+    try:
+        price = countryPage.find("span", class_="a-price-whole").text + countryPage.find("span", class_="a-price-fraction").text
+    except:
+        price = "None"
+
+    return price
+
+
+def search(searchrequest):
+
+    pagenum = 1
     sleepTime = 0
+    pageLimit = 7
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -26,57 +40,75 @@ def searchIE(searchrequest):
 
     productObject = {
         "title": "",
-        "price": "",
+        "price_ie": "",
+        "price_uk": "",
+        "price_de": "",
         "image": "",
         "link": "",
         "asin": "",
+
     }
     resultsList = []
 
 
 
     #get products
-    while allProducts != []:
+    while allProducts != [] and pagenum <= pageLimit:
         #print(pagenum)
-        if allProducts != [] and pagenum <= 7:
+        if allProducts != [] and pagenum <= pageLimit:
             pagenum += 1
             url = f'https://www.amazon.ie/s?k={searchrequest}&page={pagenum}'
             result = session.get(url)
             page = BeautifulSoup(result.content, "lxml")
             allProducts = page.find_all("div", role="listitem")
-            for product in allProducts:
-                try:
-                    innerText = product.find("h2", class_="a-size-base-plus a-spacing-none a-color-base a-text-normal")
-                    title = innerText.find("span").text
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = []
+                for product in allProducts:
+                    try:
+                        innerText = product.find("h2", class_="a-size-base-plus a-spacing-none a-color-base a-text-normal")
+                        title = innerText.find("span").text
 
-                except:
-                    title = "None"
+                    except:
+                        title = "None"
 
 
-                try:
-                    price = product.find("span", class_="a-price-whole").text + product.find("span",class_="a-price-fraction").text
-                except:
-                    price = "None"
+                    try:
+                        price = product.find("span", class_="a-price-whole").text + product.find("span",class_="a-price-fraction").text
+                    except:
+                        price = "None"
 
-                try:
-                    image = product.find("img", class_="s-image").attrs["src"]
-                except:
-                    image = "None"
-                link = product.find("a")["href"]
-                match = re.search(r'/dp/([A-Z0-9]{10})', link)
 
-                newProductObject = productObject.copy()
 
-                newProductObject["title"] = title
-                newProductObject["price"] = price
-                newProductObject["image"] = image
 
-                if match:
-                    asin = match.group(1)
-                    newProductObject["link"] = "https://www.amazon.ie/dp/" + asin
-                    newProductObject["asin"] = asin
+                    try:
+                        image = product.find("img", class_="s-image").attrs["src"]
+                    except:
+                        image = "None"
+                    link = product.find("a")["href"]
+                    match = re.search(r'/dp/([A-Z0-9]{10})', link)
 
-                resultsList.append(newProductObject)
+                    newProductObject = productObject.copy()
+
+                    newProductObject["title"] = title
+                    newProductObject["price_ie"] = price
+                    newProductObject["image"] = image
+
+                    if match:
+                        asin = match.group(1)
+                        newProductObject["link"] = "https://www.amazon.ie/dp/" + asin
+                        newProductObject["asin"] = asin
+
+                        futureDE = executor.submit(priceAnotherCountry ,session,"de",asin)
+                        futureUK = executor.submit(priceAnotherCountry ,session,"co.uk",asin)
+                        futures.append((newProductObject,futureDE,futureUK))
+                    else:
+                        resultsList.append(newProductObject)
+
+                for obj,futureDE,futureUK in futures:
+                    obj["price_de"] = futureDE.result()
+                    obj["price_uk"] = futureUK.result()
+                    resultsList.append(obj)
+
 
         time.sleep(sleepTime)
 
