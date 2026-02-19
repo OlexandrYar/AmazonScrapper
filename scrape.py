@@ -12,7 +12,8 @@ def priceAnotherCountry(session,domainEnding,asin):
     countryPage = BeautifulSoup(countryResult.content, "lxml")
 
     try:
-        price = countryPage.find("span", class_="a-price-whole").text + countryPage.find("span", class_="a-price-fraction").text
+        innerBlock = countryPage.find("div", class_="a-box-group")
+        price = innerBlock.find("span", class_="a-price-whole").text + innerBlock.find("span", class_="a-price-fraction").text
     except:
         price = "None"
 
