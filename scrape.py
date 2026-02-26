@@ -3,10 +3,10 @@ import time
 import re
 from bs4 import BeautifulSoup
 import requests
-import  lxml
+import lxml
 from concurrent.futures import ThreadPoolExecutor
 
-def priceAnotherCountry(session,domainEnding,asin):
+def priceAnotherCountry(session, domainEnding, asin):
     countryUrl = f'https://www.amazon.{domainEnding}/dp/{asin}'
     countryResult = session.get(countryUrl)
     countryPage = BeautifulSoup(countryResult.content, "lxml")
@@ -23,7 +23,7 @@ def priceAnotherCountry(session,domainEnding,asin):
 def search(searchrequest):
     pagenum = 1
     sleepTime = 0
-    pageLimit = 1
+    pageLimit = 3
     workersNum = 20
 
     headers = {
@@ -33,11 +33,6 @@ def search(searchrequest):
 
     session = requests.Session()
     session.headers.update(headers)
-
-    url = f'https://www.amazon.ie/s?k={searchrequest}'
-    result = session.get(url)
-    page = BeautifulSoup(result.content, "lxml")
-    allProducts = page.find_all("div", role="listitem")
 
     productObject = {
         "title": "",
@@ -49,73 +44,78 @@ def search(searchrequest):
         "link_de": "",
         "link_uk": "",
         "asin": "",
-
     }
     resultsList = []
 
+    # BUG 1 FIX: Removed the redundant initial request that was never used for
+    # product extraction. The while loop now handles all page fetches.
 
+    while pagenum <= pageLimit:
+        url = f'https://www.amazon.ie/s?k={searchrequest}&page={pagenum}'
+        result = session.get(url)
+        page = BeautifulSoup(result.content, "lxml")
+        allProducts = page.find_all("div", role="listitem")
 
-    #get products
-    while allProducts != [] and pagenum <= pageLimit:
-        #print(pagenum)
-        if allProducts != [] and pagenum <= pageLimit:
+        # BUG 2 FIX: Break if no products found (was only checked at top of
+        # loop before, but the check was against stale data from the previous
+        # iteration or the redundant initial fetch).
+        if not allProducts:
+            break
 
-            url = f'https://www.amazon.ie/s?k={searchrequest}&page={pagenum}'
-            result = session.get(url)
-            page = BeautifulSoup(result.content, "lxml")
-            allProducts = page.find_all("div", role="listitem")
-            with ThreadPoolExecutor(max_workers=workersNum) as executor:
-                futures = []
-                for product in allProducts:
-                    try:
-                        innerText = product.find("h2", class_="a-size-base-plus a-spacing-none a-color-base a-text-normal")
-                        title = innerText.find("span").text
+        with ThreadPoolExecutor(max_workers=workersNum) as executor:
+            futures = []
+            for product in allProducts:
+                try:
+                    innerText = product.find("h2", class_="a-size-base-plus a-spacing-none a-color-base a-text-normal")
+                    title = innerText.find("span").text
+                except:
+                    title = "None"
 
-                    except:
-                        title = "None"
+                try:
+                    price = product.find("span", class_="a-price-whole").text + product.find("span", class_="a-price-fraction").text
+                except:
+                    price = "None"
 
+                try:
+                    image = product.find("img", class_="s-image").attrs["src"]
+                except:
+                    image = "None"
 
-                    try:
-                        price = product.find("span", class_="a-price-whole").text + product.find("span",class_="a-price-fraction").text
-                    except:
-                        price = "None"
-
-
-
-
-                    try:
-                        image = product.find("img", class_="s-image").attrs["src"]
-                    except:
-                        image = "None"
+                # BUG 3 FIX: The link lookup can fail if the product div has no
+                # <a> tag or no href. Wrapped in try/except to avoid crashing.
+                try:
                     link = product.find("a")["href"]
-                    match = re.search(r'/dp/([A-Z0-9]{10})', link)
+                except (TypeError, KeyError):
+                    continue
 
-                    newProductObject = productObject.copy()
+                match = re.search(r'/dp/([A-Z0-9]{10})', link)
 
-                    newProductObject["title"] = title
-                    newProductObject["price_ie"] = price
-                    newProductObject["image"] = image
+                newProductObject = productObject.copy()
 
-                    if match:
-                        asin = match.group(1)
-                        newProductObject["link_ie"] = "https://www.amazon.ie/dp/" + asin
-                        newProductObject["link_de"] = "https://www.amazon.de/dp/" + asin
-                        newProductObject["link_uk"] = "https://www.amazon.co.uk/dp/" + asin
-                        newProductObject["asin"] = asin
+                newProductObject["title"] = title
+                newProductObject["price_ie"] = price
+                newProductObject["image"] = image
 
-                        futureDE = executor.submit(priceAnotherCountry ,session,"de",asin)
-                        futureUK = executor.submit(priceAnotherCountry ,session,"co.uk",asin)
-                        futures.append((newProductObject,futureDE,futureUK))
-                    else:
-                        resultsList.append(newProductObject)
+                if match:
+                    asin = match.group(1)
+                    newProductObject["link_ie"] = "https://www.amazon.ie/dp/" + asin
+                    newProductObject["link_de"] = "https://www.amazon.de/dp/" + asin
+                    newProductObject["link_uk"] = "https://www.amazon.co.uk/dp/" + asin
+                    newProductObject["asin"] = asin
 
-                for obj,futureDE,futureUK in futures:
-                    obj["price_de"] = futureDE.result()
-                    obj["price_uk"] = futureUK.result()
-                    resultsList.append(obj)
+                    futureDE = executor.submit(priceAnotherCountry, session, "de", asin)
+                    futureUK = executor.submit(priceAnotherCountry, session, "co.uk", asin)
+                    futures.append((newProductObject, futureDE, futureUK))
+                else:
+                    resultsList.append(newProductObject)
 
+            for obj, futureDE, futureUK in futures:
+                obj["price_de"] = futureDE.result()
+                obj["price_uk"] = futureUK.result()
+                resultsList.append(obj)
 
         time.sleep(sleepTime)
         pagenum += 1
+
     resultJSON = json.dumps(resultsList, indent=1)
     return resultJSON
