@@ -6,18 +6,71 @@ import requests
 import lxml
 from concurrent.futures import ThreadPoolExecutor
 
+
+def extractPrice(page):
+    """
+    Try multiple known Amazon price selectors in order of specificity.
+    Returns the price string or "None" if nothing is found.
+    """
+
+    # Strategy 1: Look for the main "a-price" span (used on most modern layouts).
+    # We target ones that are NOT struck-through (data-a-strike = "true").
+    for price_span in page.select("span.a-price:not([data-a-strike]) .a-offscreen"):
+        text = price_span.get_text(strip=True)
+        if text:
+            cleaned = re.sub(r'[^\d.,]', '', text)
+            if cleaned:
+                return cleaned
+
+    # Strategy 2: Whole + fraction spans (original approach, but page-wide).
+    whole = page.find("span", class_="a-price-whole")
+    fraction = page.find("span", class_="a-price-fraction")
+    if whole and fraction:
+        return whole.get_text(strip=True) + fraction.get_text(strip=True)
+
+    # Strategy 3: Various legacy / regional ID-based price holders.
+    for selector_id in [
+        "priceblock_ourprice",
+        "priceblock_dealprice",
+        "priceblock_saleprice",
+        "tp_price_block_total_price_ww",
+        "price",
+    ]:
+        el = page.find(id=selector_id)
+        if el:
+            text = el.get_text(strip=True)
+            cleaned = re.sub(r'[^\d.,]', '', text)
+            if cleaned:
+                return cleaned
+
+    # Strategy 4: "a-box-group" container (original code's method, as fallback).
+    box = page.find("div", class_="a-box-group")
+    if box:
+        whole = box.find("span", class_="a-price-whole")
+        fraction = box.find("span", class_="a-price-fraction")
+        if whole and fraction:
+            return whole.get_text(strip=True) + fraction.get_text(strip=True)
+
+    # Strategy 5: corePriceDisplay (newer layout on some locales).
+    core = page.find("div", id="corePriceDisplay_desktop_feature_div")
+    if core:
+        price_span = core.find("span", class_="a-offscreen")
+        if price_span:
+            cleaned = re.sub(r'[^\d.,]', '', price_span.get_text(strip=True))
+            if cleaned:
+                return cleaned
+
+    return "None"
+
+
 def priceAnotherCountry(session, domainEnding, asin):
     countryUrl = f'https://www.amazon.{domainEnding}/dp/{asin}'
-    countryResult = session.get(countryUrl)
-    countryPage = BeautifulSoup(countryResult.content, "lxml")
-
     try:
-        innerBlock = countryPage.find("div", class_="a-box-group")
-        price = innerBlock.find("span", class_="a-price-whole").text + innerBlock.find("span", class_="a-price-fraction").text
-    except:
-        price = "None"
-
-    return price
+        countryResult = session.get(countryUrl, timeout=10)
+        countryPage = BeautifulSoup(countryResult.content, "lxml")
+        return extractPrice(countryPage)
+    except Exception:
+        return "None"
 
 
 def search(searchrequest):
@@ -47,18 +100,12 @@ def search(searchrequest):
     }
     resultsList = []
 
-    # BUG 1 FIX: Removed the redundant initial request that was never used for
-    # product extraction. The while loop now handles all page fetches.
-
     while pagenum <= pageLimit:
         url = f'https://www.amazon.ie/s?k={searchrequest}&page={pagenum}'
         result = session.get(url)
         page = BeautifulSoup(result.content, "lxml")
         allProducts = page.find_all("div", role="listitem")
 
-        # BUG 2 FIX: Break if no products found (was only checked at top of
-        # loop before, but the check was against stale data from the previous
-        # iteration or the redundant initial fetch).
         if not allProducts:
             break
 
@@ -81,11 +128,13 @@ def search(searchrequest):
                 except:
                     image = "None"
 
-                # BUG 3 FIX: The link lookup can fail if the product div has no
-                # <a> tag or no href. Wrapped in try/except to avoid crashing.
                 try:
                     link = product.find("a")["href"]
                 except (TypeError, KeyError):
+                    continue
+
+                # Skip empty or whitespace-only hrefs
+                if not link or not link.strip():
                     continue
 
                 match = re.search(r'/dp/([A-Z0-9]{10})', link)

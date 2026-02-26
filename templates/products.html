@@ -119,10 +119,10 @@
 
                     products.forEach(p => {
                         const priceBtn = (label, price, link) => {
-                            if (!price || price === "None") {
+                            if (!price || price === "None" || !link || link.trim() === "") {
                                 return `<span class="btn btn-outline-secondary btn-sm disabled w-100">${label}: N/A</span>`;
                             }
-                            return `<a href="${link}" target="_blank" class="btn btn-outline-primary btn-sm w-100">${label}: €${price}</a>`;
+                            return `<a href="${link}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-primary btn-sm w-100">${label}: €${price}</a>`;
                         };
 
                         const col = document.createElement("div");
