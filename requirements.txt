@@ -2,3 +2,8 @@ beautifulsoup4
 requests
 lxml
 Flask
+beautifulsoup4
+Flask
+lxml
+requests
+gunicorn
